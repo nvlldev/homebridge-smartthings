@@ -1,25 +1,21 @@
-import http, { IncomingMessage, Server, ServerResponse } from "http";
+import {
+  BearerTokenAuthenticator,
+  Device,
+  SmartThingsClient,
+} from "@smartthings/core-sdk";
 import {
   API,
   APIEvent,
-  CharacteristicEventTypes,
-  CharacteristicSetCallback,
-  CharacteristicValue,
+  Characteristic,
   DynamicPlatformPlugin,
   HAP,
   Logging,
   PlatformAccessory,
-  PlatformAccessoryEvent,
   PlatformConfig,
   Service,
-  Characteristic,
 } from "homebridge";
-import { AccessoryService } from "./services/accessory.service";
-import {
-  BearerTokenAuthenticator,
-  SmartThingsClient,
-} from "@smartthings/core-sdk";
-import { API_KEY } from "./constants";
+import { AccessoryCategory, BaseAccessory } from "./accessories/base.accessory";
+import { LightbulbAccessory } from "./accessories/lightbulb.accessory";
 
 const PLUGIN_NAME = "homebridge-smartthings";
 const PLATFORM_NAME = "SmartThings";
@@ -54,20 +50,21 @@ export default class Platform implements DynamicPlatformPlugin {
 
   public readonly client: SmartThingsClient;
 
-  private readonly hap: HAP;
-  private readonly log: Logging;
-  private readonly api: API;
-
-  private accessoryService: AccessoryService;
-  private requestServer?: Server;
+  public readonly hap: HAP;
+  public readonly log: Logging;
+  public readonly api: API;
+  public readonly config: PlatformConfig;
 
   private readonly accessories: PlatformAccessory[] = [];
+
+  private categories = ["Switch", "Light", "SmartPlug", "Fan", "GarageDoor"];
 
   constructor(log: Logging, config: PlatformConfig, api: API) {
     // Setup Variables
     this.hap = api.hap;
     this.log = log;
     this.api = api;
+    this.config = config;
 
     // Expose Types
     this.Accessory = api.platformAccessory;
@@ -75,17 +72,13 @@ export default class Platform implements DynamicPlatformPlugin {
     this.Characteristic = this.hap.Characteristic;
 
     // Setup SmartThings Client
-    this.client = new SmartThingsClient(new BearerTokenAuthenticator(API_KEY));
+    this.client = new SmartThingsClient(
+      new BearerTokenAuthenticator(this.config.apiKey)
+    );
 
-    this.accessoryService = new AccessoryService(this, this.api, this.log);
-
-    this.parseConfig();
+    this.setupListeners();
 
     log.info("Finished Initializing!");
-  }
-
-  parseConfig() {
-    console.log("I got here...");
   }
 
   /*
@@ -96,29 +89,12 @@ export default class Platform implements DynamicPlatformPlugin {
    */
   setupListeners() {
     this.api.on(APIEvent.DID_FINISH_LAUNCHING, () => {
-      this.log.info("Example platform 'didFinishLaunching'");
+      this.log.info("Listener for Event 'didFinishLaunching' Executed.");
 
-      // The idea of this plugin is that we open a http service which exposes api calls to add or remove accessories
-      this.createHttpService();
+      this.getOnlineDevices().then((devices) => {
+        this.syncDevices(devices);
+      });
     });
-  }
-
-  createHttpService() {
-    this.requestServer = http.createServer(this.handleRequest.bind(this));
-    this.requestServer.listen(18081, () =>
-      this.log.info("Http server listening on 18081...")
-    );
-  }
-
-  private handleRequest(request: IncomingMessage, response: ServerResponse) {
-    if (request.url === "/add") {
-      this.accessoryService.addAccessory(new Date().toISOString());
-    } else if (request.url === "/remove") {
-      this.accessoryService.removeAccessories();
-    }
-
-    response.writeHead(204); // 204 No content
-    response.end();
   }
 
   /*
@@ -128,21 +104,104 @@ export default class Platform implements DynamicPlatformPlugin {
   configureAccessory(accessory: PlatformAccessory): void {
     this.log("Configuring accessory %s", accessory.displayName);
 
-    accessory.on(PlatformAccessoryEvent.IDENTIFY, () => {
-      this.log("%s identified!", accessory.displayName);
+    this.accessories.push(accessory);
+  }
+
+  getOnlineDevices(): Promise<Array<Device>> {
+    this.log.debug("Discovering Devices...");
+
+    return new Promise<Array<Device>>((resolve, reject) => {
+      this.client.devices
+        .list()
+        .then((devices) => {
+          this.log.debug(`Discovered ${devices.length} Devices`);
+          resolve(devices);
+        })
+        .catch((error) => {
+          this.log.error(
+            `Error Retrieving Devices from SmartThings (${error})`
+          );
+          reject();
+        });
+    });
+  }
+
+  syncDevices(devices: Device[]) {
+    const accessoriesToAdd: PlatformAccessory[] = [];
+    const accessoriesToRemove: PlatformAccessory[] = [];
+
+    devices.forEach((device) => {
+      if (
+        device.components![0].categories.find((category) =>
+          this.categories.find((a) => a === category.name)
+        )
+      ) {
+        const existingAccessory = this.accessories.find(
+          (accessory) => accessory.UUID === device.deviceId
+        );
+
+        if (existingAccessory) {
+          this.log.info(
+            `Restoring Accessory from Cache: ${existingAccessory.displayName}`
+          );
+
+          this.createAccessoryObject(device, existingAccessory);
+        } else {
+          this.log.info(`Registering New Accessory: ${device.label}`);
+          const accessory = new this.api.platformAccessory(
+            device.label ?? "Default Label",
+            device.deviceId
+          );
+
+          accessory.context.device = device;
+          this.createAccessoryObject(device, accessory);
+
+          accessoriesToAdd.push(accessory);
+        }
+      }
     });
 
-    accessory
-      .getService(this.hap.Service.Lightbulb)!
-      .getCharacteristic(this.hap.Characteristic.On)
-      .on(
-        CharacteristicEventTypes.SET,
-        (value: CharacteristicValue, callback: CharacteristicSetCallback) => {
-          this.log.info("%s Light was set to: " + value);
-          callback();
-        }
+    this.accessories.forEach((accessory) => {
+      if (!devices.find((device) => device.deviceId === accessory.UUID)) {
+        this.log.info(`Will Unregister ${accessory.context.device.label}`);
+        accessoriesToRemove.push(accessory);
+      }
+    });
+
+    if (accessoriesToAdd.length > 0)
+      this.api.registerPlatformAccessories(
+        PLUGIN_NAME,
+        PLATFORM_NAME,
+        accessoriesToAdd
       );
 
-    this.accessories.push(accessory);
+    if (accessoriesToRemove.length > 0)
+      this.api.unregisterPlatformAccessories(
+        PLUGIN_NAME,
+        PLATFORM_NAME,
+        accessoriesToRemove
+      );
+  }
+
+  createAccessoryObject(
+    device: Device,
+    accessory: PlatformAccessory
+  ): BaseAccessory {
+    const category = Object.values(AccessoryCategory).find((c) =>
+      device.components![0].categories.find((cat) => cat.name === c)
+    );
+
+    switch (category) {
+      case AccessoryCategory.LIGHT: {
+        this.log.debug(`Creating Light Accessory for Device '${device.name}'`);
+        return new LightbulbAccessory(this, accessory);
+      }
+      default: {
+        this.log.debug(
+          `Incompatible Category '${category}' for Device '${device.name}'`
+        );
+        throw new TypeError();
+      }
+    }
   }
 }

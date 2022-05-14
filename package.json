@@ -1,10 +1,10 @@
 {
-  "name": "homebridge-dynamic-platform-example",
+  "name": "homebridge-smartthings",
   "version": "0.0.1-alpha.1",
   "description": "An example dynamic platform plugin for homebridge written in Typescript",
-  "main": "dist/dynamic-platform.js",
+  "main": "dist/index.js",
+  "keywords": ["homebridge-plugin"],
   "scripts": {
-    "dev": "nodemon ./src/devTools.ts",
     "clean": "rimraf ./dist",
     "build": "rimraf ./dist && tsc",
     "prepublishOnly": "npm run build",
@@ -28,17 +28,12 @@
     "url": "http://github.com/homebridge/homebridge-examples/issues"
   },
   "devDependencies": {
-    "@swc/cli": "^0.1.57",
-    "@swc/core": "^1.2.177",
-    "@types/node": "10.17.19",
-    "homebridge": "^1.0.4",
-    "nodemon": "^2.0.16",
+    "@types/node": "^17.0.33",
+    "homebridge": "^1.4.1",
     "rimraf": "^3.0.2",
-    "ts-node": "^10.7.0",
-    "typescript": "^3.8.3"
+    "typescript": "^4.6.4"
   },
   "dependencies": {
-    "@smartthings/core-sdk": "^3.6.0",
-    "axios": "^0.27.2"
+    "@smartthings/core-sdk": "^3.6.0"
   }
 }
