@@ -1,9 +1,12 @@
 {
-  "name": "homebridge-smartthings",
-  "version": "0.0.1-alpha.1",
-  "description": "An example dynamic platform plugin for homebridge written in Typescript",
+  "name": "homebridge-smartthings-next",
+  "displayName": "Homebridge SmartThings Plugin",
+  "version": "0.0.1-alpha.2",
+  "description": "Allows control of SmartThings API through Homebridge",
   "main": "dist/index.js",
-  "keywords": ["homebridge-plugin"],
+  "keywords": [
+    "homebridge-plugin"
+  ],
   "scripts": {
     "clean": "rimraf ./dist",
     "build": "rimraf ./dist && tsc",
@@ -13,7 +16,7 @@
   },
   "author": "Andreas Bauer <mail@anderl-bauer.de>",
   "engines": {
-    "homebridge": ">=1.0.0"
+    "homebridge": ">=1.3.5"
   },
   "license": "ISC",
   "files": [
