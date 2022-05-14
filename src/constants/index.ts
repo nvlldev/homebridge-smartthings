@@ -1,5 +1,3 @@
-import { AxiosRequestHeaders } from "axios";
-
 export const PLUGIN_NAME: string = "";
 export const PLATFORM_NAME: string = "";
 

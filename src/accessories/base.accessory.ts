@@ -1,10 +1,17 @@
 import {
+  Capability,
   Device,
   DeviceHealth,
   DeviceStatus,
   SmartThingsClient,
 } from "@smartthings/core-sdk";
-import { Characteristic, PlatformAccessory } from "homebridge";
+import {
+  API,
+  Characteristic,
+  HAP,
+  Logging,
+  PlatformAccessory,
+} from "homebridge";
 import Platform from "../platform";
 
 export enum AccessoryCategory {
@@ -22,9 +29,16 @@ export abstract class BaseAccessory {
   protected accessory: PlatformAccessory;
   protected client: SmartThingsClient;
 
+  protected hap: HAP;
+  protected log: Logging;
+  protected api: API;
+
   protected device?: Device;
   protected health?: DeviceHealth;
   protected status?: DeviceStatus;
+
+  protected id: string;
+  protected name: string;
 
   constructor(platform: Platform, accessory: PlatformAccessory) {
     this.Characteristic = platform.Characteristic;
@@ -32,6 +46,13 @@ export abstract class BaseAccessory {
     this.platform = platform;
     this.accessory = accessory;
     this.client = platform.client;
+
+    this.hap = platform.hap;
+    this.log = platform.log;
+    this.api = platform.api;
+
+    this.id = accessory.context.device.deviceId;
+    this.name = accessory.context.device.label;
 
     this.initAccessory();
   }
@@ -80,6 +101,21 @@ export abstract class BaseAccessory {
   public async isOnline(): Promise<boolean> {
     var { state } = await this.getHealth();
     return state === "ONLINE";
+  }
+
+  protected rejectPromiseDeviceOffline(reject: (reason?: any) => void) {
+    this.log.debug(`${this.name} is Offline`);
+    return reject(
+      new this.hap.HapStatusError(
+        this.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+      )
+    );
+  }
+
+  protected hasCapability(name: string): boolean {
+    return this.accessory.context.device.components[0].capabilities.find(
+      (c: Capability) => c.id === name
+    );
   }
 
   protected abstract registerHandlers(): void;
